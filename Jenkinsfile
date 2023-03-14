@@ -1,14 +1,13 @@
 pipeline {
     agent any
     environment {
-        //be sure to replace "willbla" with your own Docker Hub username
-        DOCKER_IMAGE_NAME = "willbla/train-schedule"
+        DOCKER_IMAGE_NAME = "herbergt/train-schedule"
     }
     stages {
         stage('Build') {
             steps {
                 echo 'Running build automation'
-                sh './gradlew build --no-daemon'
+                sh 'export JAVA_HOME=`/usr/libexec/java_home -v 11.0.17` && ./gradlew build --no-daemon'
                 archiveArtifacts artifacts: 'dist/trainSchedule.zip'
             }
         }
@@ -46,11 +45,10 @@ pipeline {
                 CANARY_REPLICAS = 1
             }
             steps {
-                kubernetesDeploy(
-                    kubeconfigId: 'kubeconfig',
-                    configs: 'train-schedule-kube-canary.yml',
-                    enableConfigSubstitution: true
-                )
+                 withKubeConfig([credentialsId: 'kubeconfig']) {
+                    sh "export CANARY_REPLICAS=${CANARY_REPLICAS}"
+                    sh "envsubst < train-schedule-kube-canary.yml | kubectl apply -f -"
+                 }
             }
         }
         stage('DeployToProduction') {
@@ -63,16 +61,13 @@ pipeline {
             steps {
                 input 'Deploy to Production?'
                 milestone(1)
-                kubernetesDeploy(
-                    kubeconfigId: 'kubeconfig',
-                    configs: 'train-schedule-kube-canary.yml',
-                    enableConfigSubstitution: true
-                )
-                kubernetesDeploy(
-                    kubeconfigId: 'kubeconfig',
-                    configs: 'train-schedule-kube.yml',
-                    enableConfigSubstitution: true
-                )
+                withKubeConfig([credentialsId: 'kubeconfig']) {
+                    sh "export CANARY_REPLICAS=${CANARY_REPLICAS}"
+                    sh "envsubst < train-schedule-kube-canary.yml | kubectl apply -f -"
+                }
+                withKubeConfig([credentialsId: 'kubeconfig']) {
+                    sh "envsubst < train-schedule-kube.yml | kubectl apply -f -"
+                }
             }
         }
     }
